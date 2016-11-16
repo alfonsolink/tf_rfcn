@@ -1,0 +1,181 @@
+import tensorflow as tf
+import numpy as np
+from tools import anchor_target_layer
+
+def weight_variable(shape):
+  initial = tf.truncated_normal(shape, stddev=0.1)
+  return tf.Variable(initial)
+
+def bias_variable(shape):
+  initial = tf.constant(0.1, shape=shape)
+  return tf.Variable(initial)
+
+def conv2d(x, W):
+  return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+
+def max_pool_2x2(x):
+  return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+
+def process_anno(x):
+  x = np.fromstring(x, dtype=int, sep=" ")
+  x = np.reshape(x,(-1,5))
+  l = x[:,0]
+  gt = x[:,1:]
+  return l, gt
+
+'''
+num_labels = 2
+batch_size = 10
+filename_queue = tf.train.string_input_producer(["train_files.csv"], num_epochs=None, shuffle=False)
+reader = tf.TextLineReader()
+key, value = reader.read(filename_queue)
+record_defaults = [[""],[0]]
+image_path, label = tf.decode_csv(value, field_delim=",", record_defaults=record_defaults)
+my_img = tf.image.decode_png(tf.read_file(image_path), channels=3)
+my_img = tf.cast(my_img,tf.float32) / 255
+my_img = tf.image.resize_images(my_img,224,224)
+min_after_dequeue = 5
+capacity = min_after_dequeue + 3 * batch_size
+im_batch, lb_batch = tf.train.batch([my_img,label],batch_size=batch_size,capacity=capacity)
+'''
+
+num_labels = 25
+batch_size = 1
+reader = tf.TextLineReader()
+filename_queue = tf.train.string_input_producer(["train_rcnn_files.csv"], num_epochs=None, shuffle=False)
+key, value = reader.read(filename_queue)
+image_path, anno_path = tf.decode_csv(value, record_defaults=[[""],[""]], field_delim=",")
+my_img = tf.image.decode_png(tf.read_file(image_path), channels=3)
+my_img = tf.cast(my_img,tf.float32) / 255
+my_img = tf.image.resize_images(my_img,224,224)
+anno = tf.read_file(anno_path)
+labels, gt_box = tf.py_func(process_anno,[anno],[tf.int64,tf.int64])
+labels = tf.reshape(tf.concat(1, labels), [-1,1])
+gt_box = tf.reshape(tf.concat(1, gt_box), [-1,4])
+
+
+'''
+x, y1_ = im_batch, lb_batch
+l_b = tf.to_int64(y1_)
+l = tf.one_hot(indices=l_b,depth=num_labels,on_value=1.0,off_value=0.0,axis=-1)
+l = tf.cast(l,tf.float32)
+
+W_conv1 = weight_variable([3,3,3,64])
+b_conv1 = bias_variable([64])
+h_conv1 = tf.nn.relu(conv2d(x, W_conv1) + b_conv1)
+
+W_conv2 = weight_variable([3,3,64,64])
+b_conv2 = bias_variable([64])
+h_conv2 = tf.nn.relu(conv2d(h_conv1, W_conv2) + b_conv2)
+
+h_max1 =  max_pool_2x2(h_conv2)
+
+W_conv3 = weight_variable([3,3,64,128])
+b_conv3 = bias_variable([128])
+h_conv3 = tf.nn.relu(conv2d(h_max1, W_conv3) + b_conv3)
+
+W_conv4 = weight_variable([3,3,128,128])
+b_conv4 = bias_variable([128])
+h_conv4 = tf.nn.relu(conv2d(h_conv3, W_conv4) + b_conv4)
+
+h_max2 =  max_pool_2x2(h_conv4)
+
+W_conv5 = weight_variable([3,3,128,256])
+b_conv5 = bias_variable([256])
+h_conv5 = tf.nn.relu(conv2d(h_max2, W_conv5) + b_conv5)
+
+W_conv6 = weight_variable([3,3,256,256])
+b_conv6 = bias_variable([256])
+h_conv6 = tf.nn.relu(conv2d(h_conv5, W_conv6) + b_conv6)
+
+W_conv7 = weight_variable([3,3,256,256])
+b_conv7 = bias_variable([256])
+h_conv7 = tf.nn.relu(conv2d(h_conv6, W_conv7) + b_conv7)
+
+h_max3 =  max_pool_2x2(h_conv7)
+
+W_conv7 = weight_variable([3,3,256,512])
+b_conv7 = bias_variable([512])
+h_conv7 = tf.nn.relu(conv2d(h_max3, W_conv7) + b_conv7)
+
+W_conv8 = weight_variable([3,3,512,512])
+b_conv8 = bias_variable([512])
+h_conv8 = tf.nn.relu(conv2d(h_conv7, W_conv8) + b_conv8)
+
+W_conv9 = weight_variable([3,3,512,512])
+b_conv9 = bias_variable([512])
+h_conv9 = tf.nn.relu(conv2d(h_conv8, W_conv9) + b_conv9)
+
+h_max4 =  max_pool_2x2(h_conv9)
+
+W_conv10 = weight_variable([3,3,512,512])
+b_conv10 = bias_variable([512])
+h_conv10 = tf.nn.relu(conv2d(h_max4, W_conv10) + b_conv10)
+
+W_conv11 = weight_variable([3,3,512,512])
+b_conv11 = bias_variable([512])
+h_conv11 = tf.nn.relu(conv2d(h_conv10, W_conv11) + b_conv11)
+
+W_conv12 = weight_variable([3,3,512,512])
+b_conv12 = bias_variable([512])
+h_conv12 = tf.nn.relu(conv2d(h_conv11, W_conv12) + b_conv12)
+
+#RPN
+
+W_rpn3 = weight_variable([3,3,512,512])
+b_rpn3 = bias_variable([512])
+h_rpn3 = tf.nn.relu(conv2d(h_conv12, W_rpn3) + b_rpn3)
+
+W_cls_score = weight_variable([1,1,512,18])
+b_cls_score = bias_variable([18])
+h_cls_score = tf.nn.relu(conv2d(h_rpn3, W_cls_score) + b_cls_score)
+
+W_bbox_pred = weight_variable([1,1,512,36])
+b_bbox_pred = bias_variable([36])
+h_bbox_pred = tf.nn.relu(conv2d(h_rpn3, W_cls_score) + b_cls_score)
+
+h_cls_score_reshape = tf.reshape(h_cls_score, [2,-1])
+
+
+
+#print h_cls_score
+
+h_fc1 = tf.reshape(h_cls_score_reshape, [-1, 14*14*18])
+W_fc1 = weight_variable([14*14*18,2])
+b_fc1 = bias_variable([2])
+y_conv = tf.matmul(h_fc1, W_fc1) + b_fc1
+
+cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(y_conv, y1_)
+loss = tf.reduce_mean(cross_entropy)
+train_step = tf.train.AdamOptimizer(1e-4).minimize(loss)
+correct_prediction = tf.equal(tf.argmax(y_conv,1), tf.argmax(l,1))
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+
+'''
+init = tf.initialize_all_variables()
+with tf.Session() as sess:
+  sess.run(init)
+  coord = tf.train.Coordinator()
+  threads = tf.train.start_queue_runners(sess=sess,coord=coord)
+  
+  for i in range(10000000):
+    print labels.eval()
+    #sess.run(train_step)
+    #if i%10 == 0:
+    #print "Iteration " + str(i)
+    #print "Loss: " + str(loss.eval())
+    #print "Accuracy: " + str(accuracy.eval())
+    #print ""
+    
+  coord.request_stop()
+  coord.join(threads)
+  sess.close()
+
+
+
+
+
+
+
+
